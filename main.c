@@ -94,7 +94,7 @@ void *sock_thread_local_send()
         //read audio from audio-card
         ret = read(fd_audio, sendbuf, sizeof(sendbuf)); // 录音
         //addNum(sendbuf);
-        write(sock_local, sendbuf, strlen(sendbuf));
+        write(sock_local, sendbuf, sizeof(sendbuf));
     }
 }
 
