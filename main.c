@@ -53,17 +53,17 @@ void *sock_thread_local_recv()
     int ret;
     while(1)
     {
-        ret = recvfrom(sock_local, recvbuf, sizeof(recvbuf), 0, NULL, NULL);
+        ret = read(sock_local, recvbuf, sizeof(recvbuf));
         if (ret == -1)
             perror("recvfrom err");
 
-        if(greaterCurrent(recvbuf))
-        {
+        //if(greaterCurrent(recvbuf))
+        //{
             //write audio buf to audio-card
-            ret = write(fd_audio, recvbuf+5, sizeof(recvbuf+5)); // 放音
-            if (ret != sizeof(recvbuf+5))
+            ret = write(fd_audio, recvbuf, sizeof(recvbuf)); // 放音
+            if (ret != sizeof(recvbuf))
                 perror("wrote wrong number of bytes");
-        }
+        //}
     }
 }
 
@@ -92,41 +92,62 @@ void *sock_thread_local_send()
     while(1)
     {
         //read audio from audio-card
-        ret = read(fd_audio, sendbuf+5, sizeof(sendbuf+5)); // 录音
-        addNum(sendbuf);
-        sendto(sock_local, sendbuf, strlen(sendbuf), 0, (struct sockaddr *)&addr_local, sizeof(addr_local));
+        ret = read(fd_audio, sendbuf, sizeof(sendbuf)); // 录音
+        //addNum(sendbuf);
+        write(sock_local, sendbuf, strlen(sendbuf));
     }
 }
 
 void *sock_thread_local()
 {
-    if ((sock_local = socket(PF_INET, SOCK_DGRAM, 0)) < 0)
+    if ((sock_local = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
         perror("create socket_local failed!");
 
     memset(&addr_local, 0, sizeof(addr_local));
     addr_local.sin_family = AF_INET;
-    addr_local.sin_port = htons(8081);
-    addr_local.sin_addr.s_addr = inet_addr("127.0.0.1");
+    addr_local.sin_port = htons(8082);
+    if(inet_pton(AF_INET, "127.0.0.1", &addr_local.sin_addr) <= 0)
+    {
+        printf("not a valid IPaddress\n");
+        exit(1);
+    }
+    int yes = 1;
+    setsockopt(sock_local , SOL_SOCKET, SO_BROADCAST, &yes, sizeof(yes));
+    if(connect(sock_local, (struct sockaddr *)&addr_local, sizeof(addr_local)) == -1)
+    {
+        perror("connect error");
+        exit(1);
+    }
 
     pthread_t thread_local_recv,thread_local_send;
     memset(&thread_local_recv, 0, sizeof(thread_local_recv));
     memset(&thread_local_send, 0, sizeof(thread_local_send));
+
+    if ((pthread_create(&thread_local_recv, NULL, sock_thread_local_recv, NULL)) < 0)
+        perror("create sock_thread_local failed!");
+    if ((pthread_create(&thread_local_send, NULL, sock_thread_local_send, NULL)) < 0)
+        perror("create sock_thread_local failed!");
+
+    if (thread_local_recv != 0)
+        pthread_join(thread_local_recv,NULL);//等待线程退出
+    if (thread_local_send != 0)
+        pthread_join(thread_local_send,NULL);//等待线程退出
 }
 
 void *sock_thread_remote()
 {
-    if ((sock_remote = socket(PF_INET, SOCK_DGRAM, 0)) < 0)
+    /*if ((sock_remote = socket(PF_INET, SOCK_DGRAM, 0)) < 0)
         perror("create socket_remote failed!");
 
     memset(&addr_remote, 0, sizeof(addr_remote));
     addr_remote.sin_family = AF_INET;
-    addr_remote.sin_port = htons(8081);
+    addr_remote.sin_port = htons(8082);
     addr_remote.sin_addr.s_addr = inet_addr("115.159.23.237");
 
     pthread_t thread_remote_recv,thread_remote_send,thread_remote_heartbeat;
     memset(&thread_remote_recv, 0, sizeof(thread_remote_recv));
     memset(&thread_remote_send, 0, sizeof(thread_remote_send));
-    memset(&thread_remote_heartbeat, 0, sizeof(thread_remote_heartbeat));
+    memset(&thread_remote_heartbeat, 0, sizeof(thread_remote_heartbeat));*/
 
 
 }
@@ -179,18 +200,21 @@ int main()
 
     pthread_t thread_local,thread_remote;
     memset(&thread_local, 0, sizeof(thread_local));
-    memset(&thread_remote, 0, sizeof(thread_remote));
+    //memset(&thread_remote, 0, sizeof(thread_remote));
 
     if ((pthread_create(&thread_local, NULL, sock_thread_local, NULL)) < 0)
         perror("create sock_thread_local failed!");
-    if ((pthread_create(&thread_remote, NULL, sock_thread_remote, NULL)) < 0)
-        perror("create sock_thread_remote failed!");
+    //if ((pthread_create(&thread_remote, NULL, sock_thread_remote, NULL)) < 0)
+     //   perror("create sock_thread_remote failed!");
 
 
     if (thread_local != 0)
         pthread_join(thread_local,NULL);//等待线程退出
-    if (thread_remote != 0)
-        pthread_join(thread_remote,NULL);//等待线程退出
+    //if (thread_remote != 0)
+    //    pthread_join(thread_remote,NULL);//等待线程退出
+
+    close(sock_local);
+    //close(sock_remote);
 
     return 0;
 }
