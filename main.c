@@ -68,9 +68,14 @@ void *sock_thread_local_recv()
         //if(greaterCurrent(recvbuf))
         //{
             //write audio buf to audio-card
-            ret = write(fd_audio, pack.data, BUFLEN); // 放音
-            if (ret != BUFLEN)
-                perror("wrote wrong number of bytes");
+            if (pack.id > current_recv_id)
+            {
+                current_recv_id = pack.id;
+                ret = write(fd_audio, pack.data, BUFLEN); // 放音
+                if (ret != BUFLEN)
+                    perror("wrote wrong number of bytes");
+            }
+
         //}
     }
 }
@@ -119,7 +124,7 @@ void *sock_thread_local()
     memset(&addr_local, 0, sizeof(addr_local));
     addr_local.sin_family = AF_INET;
     addr_local.sin_port = htons(8082);
-    if(inet_pton(AF_INET, "127.0.0.1", &addr_local.sin_addr) <= 0)
+    if(inet_pton(AF_INET, "192.168.0.80", &addr_local.sin_addr) <= 0)
     {
         printf("not a valid IPaddress\n");
         exit(1);
