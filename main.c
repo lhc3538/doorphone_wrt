@@ -4,7 +4,7 @@
 #include <string.h>
 
 #define DEFAULT_PORT 8081
-#define MAXLINE 128
+#define BUFLEN 1024
 //---------------------------
 #include <unistd.h>
 #include <fcntl.h>
@@ -18,23 +18,27 @@
 #include <pthread.h>
 //#include "public.h"
 
+typedef struct
+{
+    unsigned long long id; //package's id
+    unsigned char data[BUFLEN];    //audio data
+} Package;
+
 int sock_local,sock_remote;     //socket
 struct sockaddr_in addr_local,addr_remote;  //address
 int fd_audio;   //audiocard
 
-unsigned char current_recvNum[5],current_sendNum[5]; //current audio package's id
-int isbusy_audio;
+unsigned long long current_recv_id,current_send_id;
 
-
-void initNum()
+void resetID()
 {
-    memset(current_recvNum,0,sizeof(current_recvNum));
-    memset(current_sendNum,0,sizeof(current_sendNum));
+    current_recv_id = 0;
+    current_send_id = 0;
 }
 
 int greaterCurrent(char* num)
 {
-    int i,j;
+    /*int i,j;
     for (i=0;i<5;i++)
     {
         if (num[i]>current_recvNum[i])
@@ -44,24 +48,28 @@ int greaterCurrent(char* num)
             return 1;
         }
     }
-    return 0;
+    return 0;*/
 }   //judge pakeage's id ,and update current id
 
 void *sock_thread_local_recv()
 {
-    unsigned char recvbuf[1024];
+    Package pack;
+    int pack_len = sizeof(Package);
+    char buf_sock[pack_len];
     int ret;
     while(1)
     {
-        ret = read(sock_local, recvbuf, sizeof(recvbuf));
+        ret = read(sock_local, buf_sock, pack_len);
         if (ret == -1)
             perror("recvfrom err");
 
+        memcpy(&pack,buf_sock,pack_len);
+        printf("recv%llu:%s\n",pack.id,pack.data);
         //if(greaterCurrent(recvbuf))
         //{
             //write audio buf to audio-card
-            ret = write(fd_audio, recvbuf, sizeof(recvbuf)); // 放音
-            if (ret != sizeof(recvbuf))
+            ret = write(fd_audio, pack.data, BUFLEN); // 放音
+            if (ret != BUFLEN)
                 perror("wrote wrong number of bytes");
         //}
     }
@@ -69,7 +77,7 @@ void *sock_thread_local_recv()
 
 void addNum(char* buf)
 {
-    int i;
+   /* int i;
     for (i=0;i<5;i++)
         buf[i] = current_sendNum[i];
     current_sendNum[4]++;
@@ -82,19 +90,24 @@ void addNum(char* buf)
         }
     }
     if (current_sendNum[0] == 255)
-        memset(current_sendNum,0,sizeof(current_sendNum));
+        memset(current_sendNum,0,sizeof(current_sendNum));*/
 }   //copy current id to buf,and add current id
 
 void *sock_thread_local_send()
 {
-    unsigned char sendbuf[1024];
+    Package pack;
+    int pack_len = sizeof(Package);
+    char buf_sock[pack_len];
     int ret;
     while(1)
     {
         //read audio from audio-card
-        ret = read(fd_audio, sendbuf, sizeof(sendbuf)); // 录音
+        ret = read(fd_audio, pack.data, BUFLEN); // 录音
+        ++pack.id;
+        memcpy(buf_sock,&pack,pack_len);
+        printf("send%llu:%s\n",pack.id,pack.data);
         //addNum(sendbuf);
-        write(sock_local, sendbuf, sizeof(sendbuf));
+        write(sock_local, buf_sock, pack_len);
     }
 }
 
@@ -193,10 +206,9 @@ int initDsp()
 
 int main()
 {
-    initNum();
+    resetID();
 
     fd_audio = initDsp();   //init audiocard
-    isbusy_audio = 0;
 
     pthread_t thread_local,thread_remote;
     memset(&thread_local, 0, sizeof(thread_local));
