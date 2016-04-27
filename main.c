@@ -29,27 +29,48 @@ struct sockaddr_in addr_local,addr_remote;  //address
 int fd_audio;   //audiocard
 
 unsigned long long current_recv_id,current_send_id;
+pthread_mutex_t mutex_local_recv,mutex_local_send,lock_local;    //Mutex
+pthread_cond_t cond_local;
 
 void resetID()
 {
     current_recv_id = 0;
+    pthread_mutex_lock(&mutex_local_send);   //lock
     current_send_id = 0;
+    pthread_mutex_unlock(&mutex_local_send);   //unlock
 }
 
-int greaterCurrent(char* num)
+void *sock_thread_local_timer()
 {
-    /*int i,j;
-    for (i=0;i<5;i++)
+    Package pack;
+    int pack_len = sizeof(Package);
+    char buf_sock[pack_len];
+    pack.id = 0;
+    pack.data[0] = 'H';
+    memcpy(buf_sock,&pack,pack_len);
+
+    unsigned long long tempId;
+    while(1)
     {
-        if (num[i]>current_recvNum[i])
+        pthread_mutex_lock(&mutex_local_recv);   //lock
+        tempId = current_recv_id;
+        pthread_mutex_unlock(&mutex_local_recv);     //unlock
+
+        sleep(2);
+
+        pthread_mutex_lock(&mutex_local_recv);   //lock
+        if (current_recv_id == tempId)  //drop the connect
         {
-            for (j=0;j<5;j++)
-                current_recvNum[j] = num[j];
-            return 1;
+            printf("drop connect\n");
+            resetID();
         }
+        if (current_recv_id == 0)
+        {
+            write(sock_local, buf_sock, pack_len);  //send heart's package
+        }
+        pthread_mutex_unlock(&mutex_local_recv);     //unlock
     }
-    return 0;*/
-}   //judge pakeage's id ,and update current id
+}
 
 void *sock_thread_local_recv()
 {
@@ -59,44 +80,39 @@ void *sock_thread_local_recv()
     int ret;
     while(1)
     {
+
+
         ret = read(sock_local, buf_sock, pack_len);
         if (ret == -1)
+        {
             perror("recvfrom err");
+            continue;
+        }
 
         memcpy(&pack,buf_sock,pack_len);
         printf("recv%llu:%s\n",pack.id,pack.data);
-        //if(greaterCurrent(recvbuf))
-        //{
-            //write audio buf to audio-card
-            if (pack.id > current_recv_id)
-            {
-                current_recv_id = pack.id;
-                ret = write(fd_audio, pack.data, BUFLEN); // 放音
-                if (ret != BUFLEN)
-                    perror("wrote wrong number of bytes");
-            }
 
-        //}
+        //write audio buf to audio-card
+        pthread_mutex_lock(&mutex_local_recv);   //lock
+        if (pack.id > current_recv_id)
+        {
+            pthread_mutex_lock(&mutex_local_send);
+            pthread_cond_signal(&cond_local);   //open send
+            pthread_mutex_unlock(&mutex_local_send);   //unlock
+
+
+            current_recv_id = pack.id;
+            pthread_mutex_unlock(&mutex_local_recv);   //unlock
+            ret = write(fd_audio, pack.data, BUFLEN); // 放音
+            if (ret != BUFLEN)
+                perror("wrote wrong number of bytes");
+        }
+        else
+            pthread_mutex_unlock(&mutex_local_recv);   //unlock
+
     }
 }
 
-void addNum(char* buf)
-{
-   /* int i;
-    for (i=0;i<5;i++)
-        buf[i] = current_sendNum[i];
-    current_sendNum[4]++;
-    for (i=4;i>=1;i--)
-    {
-        if (current_sendNum[i] == 255)
-        {
-            current_sendNum[i] = 0;
-            current_sendNum[i-1]++;
-        }
-    }
-    if (current_sendNum[0] == 255)
-        memset(current_sendNum,0,sizeof(current_sendNum));*/
-}   //copy current id to buf,and add current id
 
 void *sock_thread_local_send()
 {
@@ -106,9 +122,16 @@ void *sock_thread_local_send()
     int ret;
     while(1)
     {
+        pthread_mutex_lock(&mutex_local_send);
+        while(current_send_id == 0)
+        {
+            pthread_cond_wait(&cond_local,&mutex_local_send);   //wait connnect
+            current_send_id = 1;
+        }
+        pack.id = current_send_id++;
+        pthread_mutex_unlock(&mutex_local_send);
         //read audio from audio-card
         ret = read(fd_audio, pack.data, BUFLEN); // 录音
-        ++pack.id;
         memcpy(buf_sock,&pack,pack_len);
         printf("send%llu:%s\n",pack.id,pack.data);
         //addNum(sendbuf);
@@ -116,7 +139,7 @@ void *sock_thread_local_send()
     }
 }
 
-void *sock_thread_local()
+void sock_thread_local()
 {
     if ((sock_local = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
         perror("create socket_local failed!");
@@ -137,22 +160,37 @@ void *sock_thread_local()
         exit(1);
     }
 
-    pthread_t thread_local_recv,thread_local_send;
+    pthread_mutex_init(&mutex_local_recv,NULL);  //init Mutex
+    pthread_mutex_init(&mutex_local_send,NULL);  //init Mutex
+    pthread_cond_init(&cond_local,NULL);  //init Cond
+
+    pthread_t thread_local_recv,thread_local_send,thread_local_timer;
     memset(&thread_local_recv, 0, sizeof(thread_local_recv));
     memset(&thread_local_send, 0, sizeof(thread_local_send));
+    memset(&thread_local_timer, 0, sizeof(thread_local_timer));
 
     if ((pthread_create(&thread_local_recv, NULL, sock_thread_local_recv, NULL)) < 0)
         perror("create sock_thread_local failed!");
     if ((pthread_create(&thread_local_send, NULL, sock_thread_local_send, NULL)) < 0)
+        perror("create sock_thread_local failed!");
+    if ((pthread_create(&thread_local_timer, NULL, sock_thread_local_timer, NULL)) < 0)
         perror("create sock_thread_local failed!");
 
     if (thread_local_recv != 0)
         pthread_join(thread_local_recv,NULL);//等待线程退出
     if (thread_local_send != 0)
         pthread_join(thread_local_send,NULL);//等待线程退出
+    if (thread_local_timer != 0)
+        pthread_join(thread_local_timer,NULL);//等待线程退出
+
+    pthread_mutex_destroy(&mutex_local_recv);    //destory mutex
+    pthread_mutex_destroy(&mutex_local_send);    //destory mutex
+    pthread_cond_destroy(&cond_local);   //destory cond
+
+    close(sock_local);  //close socket
 }
 
-void *sock_thread_remote()
+void sock_thread_remote()
 {
     /*if ((sock_remote = socket(PF_INET, SOCK_DGRAM, 0)) < 0)
         perror("create socket_remote failed!");
@@ -215,22 +253,9 @@ int main()
 
     fd_audio = initDsp();   //init audiocard
 
-    pthread_t thread_local,thread_remote;
-    memset(&thread_local, 0, sizeof(thread_local));
-    //memset(&thread_remote, 0, sizeof(thread_remote));
 
-    if ((pthread_create(&thread_local, NULL, sock_thread_local, NULL)) < 0)
-        perror("create sock_thread_local failed!");
-    //if ((pthread_create(&thread_remote, NULL, sock_thread_remote, NULL)) < 0)
-     //   perror("create sock_thread_remote failed!");
-
-
-    if (thread_local != 0)
-        pthread_join(thread_local,NULL);//等待线程退出
-    //if (thread_remote != 0)
-    //    pthread_join(thread_remote,NULL);//等待线程退出
-
-    close(sock_local);
+    sock_thread_local();
+    sock_thread_remote();
     //close(sock_remote);
 
     return 0;
