@@ -23,11 +23,19 @@ void *sock_thread_remote_timer()
         pthread_mutex_lock(&mutex_local_recv);   //lock
         if (current_recv_id == tempId)  //drop the connect
         {
-            printf("drop connect\n");
+            printf("remote drop connect\n");
             resetID();
         }
         if (current_recv_id == 0)
         {
+            pthread_mutex_lock(&mutex_isbusy_audio);
+            if (isbusy_audio != 0)  //be used in remote
+            {
+                pthread_mutex_unlock(&mutex_isbusy_audio);
+                continue;
+            }
+            else
+                pthread_mutex_unlock(&mutex_isbusy_audio);
             write(sock_remote, buf_sock, pack_len);  //send heart's package
         }
         pthread_mutex_unlock(&mutex_local_recv);     //unlock

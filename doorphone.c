@@ -96,7 +96,6 @@ int main()
     fd_audio = initDsp();   //init audiocard
 
     sock_thread_local();
-    sock_thread_remote();
 
     close(fd_audio);
     return 0;

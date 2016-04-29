@@ -14,6 +14,7 @@ void *sock_thread_local_timer()
     unsigned long long tempId;
     while(1)
     {
+
         pthread_mutex_lock(&mutex_local_recv);   //lock
         tempId = current_recv_id;
         pthread_mutex_unlock(&mutex_local_recv);     //unlock
@@ -23,11 +24,19 @@ void *sock_thread_local_timer()
         pthread_mutex_lock(&mutex_local_recv);   //lock
         if (current_recv_id == tempId)  //drop the connect
         {
-            printf("drop connect\n");
+            printf("local drop connect\n");
             resetID();
         }
         if (current_recv_id == 0)
         {
+            pthread_mutex_lock(&mutex_isbusy_audio);
+            if (isbusy_audio != 0)  //audio driver be used
+            {
+                pthread_mutex_unlock(&mutex_isbusy_audio);
+                continue;
+            }
+            else
+                pthread_mutex_unlock(&mutex_isbusy_audio);
             write(sock_local, buf_sock, pack_len);  //send heart's package
         }
         pthread_mutex_unlock(&mutex_local_recv);     //unlock
@@ -161,12 +170,16 @@ void sock_thread_local()
     if ((pthread_create(&thread_local_timer, NULL, sock_thread_local_timer, NULL)) < 0)
         perror("create sock_thread_local failed!");
 
+sock_thread_remote();   //start remote connect
+
     if (thread_local_recv != 0)
         pthread_join(thread_local_recv,NULL);//等待线程退出
     if (thread_local_send != 0)
         pthread_join(thread_local_send,NULL);//等待线程退出
     if (thread_local_timer != 0)
         pthread_join(thread_local_timer,NULL);//等待线程退出
+
+
 
     pthread_mutex_destroy(&mutex_local_recv);    //destory mutex
     pthread_mutex_destroy(&mutex_local_send);    //destory mutex
