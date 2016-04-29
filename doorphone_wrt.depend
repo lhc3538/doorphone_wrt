@@ -10,3 +10,20 @@
 	<linux/soundcard.h>
 	<pthread.h>
 
+1461903028 source:/home/lhc/code/doorphone_wrt/doorphone.c
+	<sys/types.h>
+	<sys/socket.h>
+	<netinet/in.h>
+	<string.h>
+	<unistd.h>
+	<fcntl.h>
+	<sys/ioctl.h>
+	<linux/soundcard.h>
+	<pthread.h>
+	"local.h"
+	"remote.h"
+
+1461903218 /home/lhc/code/doorphone_wrt/local.h
+
+1461903172 /home/lhc/code/doorphone_wrt/remote.h
+
